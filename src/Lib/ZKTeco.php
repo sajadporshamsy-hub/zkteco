@@ -39,14 +39,10 @@ class ZKTeco{
   {
     $this->_ip = $ip;
     $this->_port = $port;
-
     $this->_zkclient = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
-
-    $timeout = array('sec' => 60, 'usec' => 500000);
+    $timeout = array('sec' => 2, 'usec' => 0);
     socket_set_option($this->_zkclient, SOL_SOCKET, SO_RCVTIMEO, $timeout);
-
   }
-
   /**
    * Create and send command to device
    *
@@ -57,39 +53,33 @@ class ZKTeco{
    */
   public function _command($command, $command_string, $type = Util::COMMAND_TYPE_GENERAL)
   {
-    $chksum = 0;
-    $session_id = $this->_session_id;
-
-    $u = unpack('H2h1/H2h2/H2h3/H2h4/H2h5/H2h6/H2h7/H2h8', substr($this->_data_recv, 0, 8));
-    $reply_id = hexdec($u['h8'] . $u['h7']);
-
-    $buf = Util::createHeader($command, $chksum, $session_id, $reply_id, $command_string);
-
-    socket_sendto($this->_zkclient, $buf, strlen($buf), 0, $this->_ip, $this->_port);
-
-    try {
-      @socket_recvfrom($this->_zkclient, $this->_data_recv, 1024, 0, $this->_ip, $this->_port);
-
-      $u = unpack('H2h1/H2h2/H2h3/H2h4/H2h5/H2h6', substr($this->_data_recv, 0, 8));
-
-      $ret = false;
-      $session = hexdec($u['h6'] . $u['h5']);
-
-      if ($type === Util::COMMAND_TYPE_GENERAL && $session_id === $session) {
-        $ret = substr($this->_data_recv, 8);
-      } else if ($type === Util::COMMAND_TYPE_DATA && !empty($session)) {
-        $ret = $session;
+      $chksum = 0;
+      $session_id = $this->_session_id;
+      $u = unpack('H2h1/H2h2/H2h3/H2h4/H2h5/H2h6/H2h7/H2h8', substr($this->_data_recv, 0, 8));
+      $reply_id = hexdec($u['h8'] . $u['h7']);
+      $buf = Util::createHeader($command, $chksum, $session_id, $reply_id, $command_string);
+      socket_sendto($this->_zkclient, $buf, strlen($buf), 0, $this->_ip, $this->_port);  
+      try {
+          $received = @socket_recvfrom($this->_zkclient, $this->_data_recv, 1024, 0, $this->_ip, $this->_port);
+          if ($received === false || empty($this->_data_recv)) {
+              if ($command == 10) {
+                  return true;
+              }
+              return false; 
+          }
+          $u = unpack('H2h1/H2h2/H2h3/H2h4/H2h5/H2h6', substr($this->_data_recv, 0, 8));
+          $ret = false;
+          $session = hexdec($u['h6'] . $u['h5']);
+          if ($type === Util::COMMAND_TYPE_GENERAL && $session_id === $session) {
+              $ret = substr($this->_data_recv, 8);
+          } else if ($type === Util::COMMAND_TYPE_DATA && !empty($session)) {
+              $ret = $session;
+          }  
+          return $ret;
+      } catch (\Throwable $e) {
+          return ($command == 10) ? true : false;
       }
-
-      return $ret;
-    } catch (ErrorException $e) {
-      return false;
-    } catch (Exception $e) {
-      return false;
-    }
-  }
-
-  /**
+  }    /**
    * Connect to device
    *
    * @return bool
